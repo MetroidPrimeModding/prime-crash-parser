@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Prime desymbolicator</title>
+        <script src="https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js"></script>
+        <style>
+            #ocr_progress {
+                height: 10px;
+                background: gray;
+                width: 100px;
+            }
+            #ocr_progress_done {
+                background: green;
+                height: 10px;
+                width: 0%;
+            }
+            #drop_zone {
+                position: relative;
+                border: 1px dashed black;
+                height: 300px;
+                width: 200px;
+                display: inline-block;
+            }
+            .droptext {
+                text-align: center;
+                position: absolute;
+                top: 40%;
+                left: 0;
+                right: 0;
+                text-align: center;
+            }
+            #drop_zone.hover {
+                background: green;
+            }
+            #loaded_img {
+                width: 300px;
+                height: 300px;
+                display: inline-block;
+            }
+            .hidden {
+                display: none;
+            }
+            #ocr_output {
+                width: 300px;
+                height: 200px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="drop_zone" ondrop="file_drop(event)" ondragover="drag_over(event)" ondragleave="drag_leave(event)">
+            <div class="droptext">
+                Drop file here
+            </div>
+        </div>
+        <img id="loaded_img" class="hidden" />
+        <div>
+            OCR status:
+            <div id="ocr_status"></div>
+            <div id="ocr_progress">
+                <div id="ocr_progress_done"></div>
+            </div>
+        </div>
+        <textarea id="ocr_output" onkeydown="parse_ocr_output()"></textarea>
+        <button type="button" onclick="parse_ocr_output()">reparse text</button>
+        <div id="result_out"></div>
+
+
+        <script type="text/javascript">
+            function file_drop(event) {
+                event.preventDefault();
+                console.log('File(s) dropped');
+
+                document.getElementById('drop_zone').classList.remove('hover');
+
+
+                if (event.dataTransfer.items) {
+                    if (event.dataTransfer.items[0].kind === 'file') {
+                        var file = event.dataTransfer.items[0].getAsFile();
+                        recognize(file);
+                    }
+                } else {
+                    for (var i = 0; i < event.dataTransfer.files.length; i++) {
+                        recognize(event.dataTransfer.files[i]);
+                    }
+                }
+            }
+
+            function drag_over(event) {
+                event.preventDefault();
+                document.getElementById('drop_zone').classList.add('hover');
+            }
+
+            function drag_leave(event) {
+                document.getElementById('drop_zone').classList.remove('hover');
+            }
+
+            function update(m) {
+                console.log(m);
+                document.getElementById('ocr_status').innerText = m.status;
+
+                const percent = Math.round(m.progress * 100);
+                document.getElementById('ocr_progress_done').style = `width: ${percent}%`;
+            }
+
+            async function recognize(file) {
+                console.log(`Checking file`, file);
+                console.log(`Loading file`);
+                if (!file.type.startsWith("image/")) {
+                    alert('That ain\'t an image; aborting');
+                    return;
+                }
+                if (file.size > 10_000_000) {
+                    alert('file is too big, aborting');
+                    return;
+                }
+                document.getElementById('loaded_img').src = URL.createObjectURL(file);
+                document.getElementById('loaded_img').classList.remove('hidden');
+                // const contents = await file.arrayBuffer();
+
+                const res = await worker.recognize(file);
+                console.log(res.data.text);
+                console.log(res);
+                document.getElementById('ocr_output').value = res.data.text;
+                parse_ocr_output();
+            }
+
+            function parse_ocr_output() {
+                let res_str = '';
+                const lines = document.getElementById('ocr_output').value.split('\n');
+                try {
+                    // Find IP line
+                    const ip_line = lines.filter(it => it.match(/IP:/))[0];
+                    const ip = Number.parseInt(ip_line.match(/IP: +0x([0-9a-fA-F ]+)/)[1].replace(' ', ''), 16);
+                    const ip_symb = lookup(ip);
+                    res_str += `IP: ${ip.toString(16)} ${ip_symb.name} (${ip_symb.clazz})\n`;
+                } catch (e) {
+                    console.debug(e);
+                }
+                try {
+                    // Find stack trace lines
+                    const stack_lines = lines.filter(it => it.match(/0x.*0x.*0x/));
+                    const stack_addrs = stack_lines.map(it => Number.parseInt(it.match(/0x.*0x.*0x([0-9a-fA-F ]+)/)[1].replace(' ', ''), 16));
+
+                    for (const addr of stack_addrs) {
+                        let symb = lookup(addr);
+                        res_str += `Stack: ${addr.toString(16)} ${symb.name} (${symb.clazz})\n`;
+                    }
+                } catch (e) {
+                    console.debug(e);
+                }
+                document.getElementById('result_out').innerText = res_str;
+            }
+
+            let UNKNOWN_SYMBOL = {
+                name: '???',
+                clazz: '???',
+                addr: 0
+            };
+            let mappings = [];
+            async function load_mappings() {
+                const mappingText = await (await fetch('mp-00-symbols.map')).text();
+                const lines = mappingText.split('\n');
+                for (const line of lines) {
+                    if (line.trim().length == 0) continue;
+                    const split = line.split(/\s+/);
+                    const [_0, address, _1, _2, _3, name, clazz] = split;
+                    if (name == undefined) debugger;
+                    mappings.push({
+                        address: Number.parseInt(address, 16), name, clazz
+                    });
+                }
+                console.log(`Loaded ${mappings.length} mappings`);
+            }
+
+            function lookup(addr) {
+                let start = 0;
+                let end = mappings.length - 1;
+                let res = UNKNOWN_SYMBOL;
+                while (start <= end) {
+                    let mid = Math.round((start + end) / 2);
+                    if (mappings[mid].address >= addr) {
+                        end = mid - 1;
+                    } else {
+                        res = mappings[mid];
+                        start = mid + 1;
+                    }
+                }
+                return res;
+            }
+
+            const worker = Tesseract.createWorker({
+                logger: m => update(m)
+            });
+            (async() => {
+                await load_mappings();
+                parse_ocr_output();
+
+                await worker.load();
+                await worker.loadLanguage('eng');
+                await worker.initialize('eng');
+                await worker.setParameters({
+                    tessedit_char_whitelist: ' :/-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNPQRSTUVWXYZ0123456789' // no uppercase O, only zero
+                });
+            })();
+        </script>
+    </body>
+</html>
