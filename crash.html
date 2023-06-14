@@ -53,6 +53,13 @@
             </div>
         </div>
         <img id="loaded_img" class="hidden" />
+		<div>
+            <p>Target game:</p>
+            <input type="radio" id="prime" name="game" value="MP1" checked="true">
+            <label for="prime">Prime</label>
+            <input type="radio" id="echoes" name="game" value="MP2">
+            <label for="echoes">Echoes</label>
+        </div>
         <div>
             OCR status:
             <div id="ocr_status"></div>
@@ -138,6 +145,22 @@ IP: 0x802d68c8 Mem: Oxd1dd0d1e
             }
 
             function parse_ocr_output() {
+                let radioButtons = document.querySelectorAll('input[name="game"]');
+                let selectedGame = "MP1";
+                for (const btn of radioButtons) {
+                    if (btn.checked) {
+                        selectedGame = btn.value;
+                        break;
+                    }
+                }
+                if (selectedGame == "MP1") {
+                    inner_parse(mp1Mappings);
+                } else if (selectedGame == "MP2") {
+                    inner_parse(mp2Mappings);
+                }
+            }
+
+            function inner_parse(mappings) {
                 let res_str = '';
                 const lines = document.getElementById('ocr_output').value.split('\n');
                 try {
@@ -155,7 +178,7 @@ IP: 0x802d68c8 Mem: Oxd1dd0d1e
                     const stack_addrs = stack_lines.map(it => Number.parseInt(it.match(/0x.*0x.*0x([0-9a-fA-F ]+)/)[1].replace(' ', ''), 16));
 
                     for (const addr of stack_addrs) {
-                        let symb = lookup(addr);
+                        let symb = lookup(addr, mappings);
                         res_str += `Stack: ${addr.toString(16)} ${symb.name} (${symb.clazz})\n`;
                     }
                 } catch (e) {
@@ -169,9 +192,10 @@ IP: 0x802d68c8 Mem: Oxd1dd0d1e
                 clazz: '???',
                 addr: 0
             };
-            let mappings = [];
-            async function load_mappings() {
-                const mappingText = await (await fetch('mp-00-symbols.map')).text();
+            let mp1Mappings = [];
+            let mp2Mappings = [];
+            async function load_mappings(mappings, file) {
+                const mappingText = await (await fetch(file)).text();
                 const lines = mappingText.split('\n');
                 for (const line of lines) {
                     if (line.trim().length == 0) continue;
@@ -185,7 +209,7 @@ IP: 0x802d68c8 Mem: Oxd1dd0d1e
                 console.log(`Loaded ${mappings.length} mappings`);
             }
 
-            function lookup(addr) {
+            function lookup(addr, mappings) {
                 let start = 0;
                 let end = mappings.length - 1;
                 let res = UNKNOWN_SYMBOL;
@@ -205,7 +229,8 @@ IP: 0x802d68c8 Mem: Oxd1dd0d1e
                 logger: m => update(m)
             });
             (async() => {
-                await load_mappings();
+                await load_mappings(mp1Mappings, './mp-00-symbols.map');
+                await load_mappings(mp2Mappings, './mp2-00-symbols.map');
                 parse_ocr_output();
 
                 await worker.load();
