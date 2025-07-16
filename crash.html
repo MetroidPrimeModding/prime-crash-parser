@@ -47,10 +47,13 @@
         </style>
     </head>
     <body>
-        <div id="drop_zone" ondrop="file_drop(event)" ondragover="drag_over(event)" ondragleave="drag_leave(event)">
+        <div id="drop_zone" ondrop="file_drop(event)" ondragover="drag_over(event)" ondragleave="drag_leave(event)" onclick="document.getElementById('file_input').click()">
             <div class="droptext">
                 Drop file here
+                <br />
+                (or click to select)
             </div>
+            <input type="file" id="file_input" onchange="recognize(this.files[0])" class="hidden" />
         </div>
         <img id="loaded_img" class="hidden" />
 		<div>
