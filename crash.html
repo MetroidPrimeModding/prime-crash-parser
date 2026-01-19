@@ -2,7 +2,7 @@
 <html>
     <head>
         <title>Prime desymbolicator</title>
-        <script src="https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js"></script>
+        <script src='https://cdn.jsdelivr.net/npm/tesseract.js@6/dist/tesseract.min.js'></script>
         <style>
             #ocr_progress {
                 height: 10px;
@@ -170,7 +170,7 @@ IP: 0x802d68c8 Mem: Oxd1dd0d1e
                     // Find IP line
                     const ip_line = lines.filter(it => it.match(/IP:/))[0];
                     const ip = Number.parseInt(ip_line.match(/IP: +0x([0-9a-fA-F ]+)/)[1].replace(' ', ''), 16);
-                    const ip_symb = lookup(ip);
+                    const ip_symb = lookup(ip, mappings);
                     res_str += `IP: ${ip.toString(16)} ${ip_symb.name} (${ip_symb.clazz})\n`;
                 } catch (e) {
                     console.debug(e);
@@ -228,17 +228,14 @@ IP: 0x802d68c8 Mem: Oxd1dd0d1e
                 return res;
             }
 
-            const worker = Tesseract.createWorker({
-                logger: m => update(m)
-            });
+            let worker;
             (async() => {
+                worker = await Tesseract.createWorker("eng", 2, {
+                    logger: m => update(m)
+                });
                 await load_mappings(mp1Mappings, './mp-00-symbols.map');
                 await load_mappings(mp2Mappings, './mp2-00-symbols.map');
                 parse_ocr_output();
-
-                await worker.load();
-                await worker.loadLanguage('eng');
-                await worker.initialize('eng');
                 await worker.setParameters({
                     tessedit_char_whitelist: ' :/-abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNPQRSTUVWXYZ0123456789' // no uppercase O, only zero
                 });
